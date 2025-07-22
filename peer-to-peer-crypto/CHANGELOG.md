@@ -1,3 +1,7 @@
+## 1.12.0 [2025-07-22]
+- Continued Git Changes
+
+
 ## 1.11.1 [2025-06-14]
 - Continued Bug Fixes 
 

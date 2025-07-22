@@ -6,16 +6,16 @@
  * @copyright 2025 Copyright(c) - All rights reserved.
  * @author    Mark Robertson
  * @package   peer-to-peer Crypto
- * @version   1.11.1
+ * @version   1.12.0
  */
 
 /**
  * Plugin Name: peer-to-peer Crypto
- * Plugin URI: https://google.com
+ * Plugin URI: https://github.com/0x4d61726/peer-to-peer-crypto
  * Description: Peer to peer crypto transfer.
- * Version: 1.11.1
+ * Version: 1.12.0
  * Author: Mark Robertson
- * Author URI: http://google.com
+ * Author URI: https://github.com/0x4d61726
  * Requires PHP: 5.6
  * WC requires at least: 3.4
  * WC tested up to: 9.5

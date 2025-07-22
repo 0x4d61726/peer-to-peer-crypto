@@ -6,7 +6,7 @@
 # http://parsedown.org
 #
 # (c) Mark Robertson
-# https://google.com
+# https://github.com/0x4d61726
 #
 #
 #
