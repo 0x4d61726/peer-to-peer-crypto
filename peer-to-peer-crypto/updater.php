@@ -3,8 +3,8 @@ class peerToPeer_Updater
 {
     private $slug; // plugin slug
     private $pluginData; // plugin data
-    private $username = 'MarkRobertson'; // GitHub username  //Pending change
-    private $repo = 'peer-to-peer-crypto-wordpress-plugin'; // GitHub repo name
+    private $username = '0x4d61726'; // GitHub username  //Pending change
+    private $repo = 'peer-to-peer-crypto'; // GitHub repo name
     private $pluginFile;
     private $githubAPIResult;
 
