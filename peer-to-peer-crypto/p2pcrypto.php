@@ -119,7 +119,7 @@ HTML;
                             '<a href="%s" class="thickbox open-plugin-details-modal" aria-label="%s" data-title="%s">%s</a>',
                             esc_url(
                                 network_admin_url(
-                                    sprintf('plugin-install.php?tab=plugin-information&amp;plugin=%s&amp;TB_iframe=true', $file)
+                                    'plugin-install.php?tab=plugin-information&plugin=peer-to-peer-crypto'
                                 )
                             ),
                             esc_attr(sprintf(__('More information about %s'), $plugin_data['Name'])),

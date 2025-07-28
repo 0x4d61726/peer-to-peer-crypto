@@ -15,7 +15,7 @@ class peerToPeer_Updater
 
     private function initPluginData()
     {
-        $this->slug = plugin_basename($this->pluginFile);
+        $this->slug = 'peer-to-peer-crypto/p2pcrypto.php';
         $this->pluginData = get_plugin_data($this->pluginFile);
     }
 
@@ -75,7 +75,15 @@ class peerToPeer_Updater
         $this->initPluginData();
         $this->getRepoReleaseInfo();
 
-        if (empty($response->slug) || $response->slug !== $this->slug) return false;
+        $acceptableSlugs = [
+            $this->slug,
+            dirname($this->slug),
+            basename($this->slug, '.php'),
+        ];
+
+        if (empty($response->slug) || !in_array($response->slug, $acceptableSlugs)) {
+            return false;
+        }
 
         $downloadLink = null;
         foreach ($this->githubAPIResult->assets as $asset) {
@@ -87,18 +95,26 @@ class peerToPeer_Updater
 
         if (!$downloadLink) return false;
 
-        $response->last_updated = $this->githubAPIResult->published_at;
-        $response->slug = $this->slug;
-        $response->plugin_name = $this->pluginData['Name'];
-        $response->version = ltrim($this->githubAPIResult->tag_name, 'v');
-        $response->author = $this->pluginData['Author'];
-        $response->homepage = $this->pluginData['PluginURI'];
-        if (isset($this->pluginData['RequiresPHP'])) {
-            $response->requires_php = $this->pluginData['RequiresPHP'];
-        }
-        $response->download_link = $downloadLink;
+        // ✅ Required fields for modal
+        $pluginInfo = new stdClass();
+        $pluginInfo->name = $this->pluginData['Name'];
+        $pluginInfo->slug = $response->slug;
+        $pluginInfo->version = ltrim($this->githubAPIResult->tag_name, 'v');
+        $pluginInfo->author = $this->pluginData['Author'];
+        $pluginInfo->homepage = $this->pluginData['PluginURI'];
+        $pluginInfo->requires_php = $this->pluginData['RequiresPHP'] ?? '5.6';
+        $pluginInfo->requires = '5.0';
+        $pluginInfo->tested = '6.5';
+        $pluginInfo->last_updated = $this->githubAPIResult->published_at;
+        $pluginInfo->download_link = $downloadLink;
 
-        return $response;
+        // ✅ Optional but useful fields
+        $pluginInfo->sections = [
+            'description' => $this->pluginData['Description'],
+            'changelog' => '<p><strong>1.12.0</strong> - Latest release from GitHub.</p>',
+        ];
+
+        return $pluginInfo;
     }
 
     public function postInstall($true, $hook_extra, $result)

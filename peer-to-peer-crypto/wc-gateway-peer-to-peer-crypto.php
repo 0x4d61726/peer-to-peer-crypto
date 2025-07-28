@@ -67,7 +67,7 @@ class WC_Gateway_p2pcrypto extends WC_Payment_Gateway_CC
         // Define user set variables.
         if (empty($this->description)) {
             $this->description = <<<HTML
-        You will be redirected to a secure third-party service where you can purchase crypto and then send as payment.;
+        Secure third-party service. Funding options include debit card, Apple Pay, Google Pay, and more. Follow the instructions provided after placing your order.;
         HTML;
         }
 
