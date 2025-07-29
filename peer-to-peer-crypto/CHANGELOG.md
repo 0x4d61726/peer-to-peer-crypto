@@ -1,3 +1,7 @@
+## 1.12.1 [2025-07-28]
+- Updated Description
+
+
 ## 1.12.0 [2025-07-22]
 - Continued Git Changes
 

@@ -7,7 +7,7 @@
  * @copyright 2025 Copyright(c) - All rights reserved.
  * @author    Mark Robertson
  * @package   peer-to-peer Crypto
- * @version   1.12.0
+ * @version   1.12.1
  */
 
 
@@ -63,11 +63,11 @@ class WC_Gateway_p2pcrypto extends WC_Payment_Gateway_CC
         $this->init_form_fields();
         $this->init_settings();
 
-        $this->title = "Debit Card via USDC";
+        $this->title = "Debit Card, Apple Pay, or Google Pay via USDC. ";
         // Define user set variables.
         if (empty($this->description)) {
             $this->description = <<<HTML
-        Secure third-party service. Funding options include debit card, Apple Pay, Google Pay, and more. Follow the instructions provided after placing your order.;
+        Secure third-party service. Funding options include debit card, Apple Pay, Google Pay, and more. Follow the instructions provided after placing your order.
         HTML;
         }
 
