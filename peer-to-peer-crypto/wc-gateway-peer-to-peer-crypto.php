@@ -7,7 +7,7 @@
  * @copyright 2025 Copyright(c) - All rights reserved.
  * @author    Mark Robertson
  * @package   peer-to-peer Crypto
- * @version   1.12.2
+ * @version   1.13.1
  */
 
 
@@ -63,11 +63,12 @@ class WC_Gateway_p2pcrypto extends WC_Payment_Gateway_CC
         $this->init_form_fields();
         $this->init_settings();
 
-        $this->title = "Debit Card, Apple Pay, or Google Pay via USDC. ";
+        $this->title = "Debit Card or Apple Pay (U.S. ONLY)";
         // Define user set variables.
         if (empty($this->description)) {
             $this->description = <<<HTML
-        Secure third-party service. Funding options include debit card, Apple Pay, Google Pay, and more. Follow the instructions provided after placing your order.
+        You will receive an email link to a SECURE third-party wallet app after submitting your order. Options - Debit Card or Apple Pay (U.S. Debit Only) via USDC. Under $500 does NOT require ID verification.
+
         HTML;
         }
 
@@ -245,7 +246,7 @@ class WC_Gateway_p2pcrypto extends WC_Payment_Gateway_CC
      *
      * @return array
      */
-    public function process_payment($order_id)  //Do we need this? Get rid of this function since it will be done async?
+    public function process_payment($order_id)
     {
         /** @var WC_Order $order */
         $order = wc_get_order($order_id);
@@ -255,27 +256,21 @@ class WC_Gateway_p2pcrypto extends WC_Payment_Gateway_CC
 
         $receiver_id = $this->get_option('receiver_id');
 
-        // ✅ Create POST payload
         $payload = [
             'userId'     => $order->get_billing_email(),
             'receiverId' => $receiver_id,
-            'amount' => intval(round($order->get_total() * 100)),
-            'orderId' => $order_id,
+            'amount'     => intval(round($order->get_total() * 100)),
+            'orderId'    => $order_id,
             'apiKey'     => $this->get_option('api_key'),
-            'name' => $order->get_formatted_billing_full_name(),
+            'name'       => $order->get_formatted_billing_full_name(),
             'invokedUrl' => $current_url,
         ];
 
         $test_mode_enabled = $this->get_option('test_mode') === 'yes';
+        $api_url = $test_mode_enabled
+            ? 'https://fidjowcul4.execute-api.us-east-1.amazonaws.com/prod/create-new-agreement-from-merchant'
+            : 'https://31hzl3yt0g.execute-api.us-east-1.amazonaws.com/prod/create-new-agreement-from-merchant';
 
-        
-        if ($test_mode_enabled) {
-            $api_url = 'https://fidjowcul4.execute-api.us-east-1.amazonaws.com/prod/create-new-agreement-from-merchant'; // Replace with your real testnet endpoint
-        } else {
-            $api_url = 'https://31hzl3yt0g.execute-api.us-east-1.amazonaws.com/prod/create-new-agreement-from-merchant'; // Mainnet
-        }
-
-        // ✅ Send POST request
         $response = wp_remote_post($api_url, [
             'method'  => 'POST',
             'headers' => ['Content-Type' => 'application/json'],
@@ -288,26 +283,43 @@ class WC_Gateway_p2pcrypto extends WC_Payment_Gateway_CC
             return ['result' => 'failure'];
         }
 
-        $body = json_decode(wp_remote_retrieve_body($response), true);
+        $outer = json_decode(wp_remote_retrieve_body($response), true);
 
-        if (isset($body['statusCode']) && $body['statusCode'] === 201) {
-            // ✅ Success
-            error_log('✅ Agreement created successfully');
-        } else {
-            // ❌ Failed
-            error_log('API call failed. Full body: ' . print_r($body, true));
-            wc_add_notice('There was an issue processing your payment. Please contact support.', 'error');
-            return [
-                'result' => 'failure',
-            ];
+        // Expecting structure { statusCode, body: '{"message":"...","agreement":{...},"checkoutType":"...","confirmationLink":"..."}' }
+        $inner = [];
+        if (isset($outer['body'])) {
+            $inner = json_decode($outer['body'], true);
+            if (!is_array($inner)) $inner = [];
         }
 
-        // Set order to on-hold status (so inventory is reserved)
+        if (isset($outer['statusCode']) && (int)$outer['statusCode'] === 201) {
+            error_log('✅ Agreement created successfully');
+
+            // NEW: read checkoutType and optional confirmationLink
+            $checkoutType = isset($inner['checkoutType']) ? strtolower(trim((string)$inner['checkoutType'])) : 'email';
+            $confirmationLink = isset($inner['confirmationLink']) ? trim((string)$inner['confirmationLink']) : '';
+
+            error_log('CheckoutType received: ' . $confirmationLink);
+            
+            // If redirect, store for thank-you page JS to open in a new tab
+            if ($checkoutType === 'redirect' && $confirmationLink) {
+                $order->update_meta_data('_p2pcrypto_checkout_type', 'redirect');
+                $order->update_meta_data('_p2pcrypto_confirmation_link', $confirmationLink);
+                $order->save();
+            }
+
+        } else {
+            error_log('API call failed. Full body: ' . print_r($outer, true));
+            wc_add_notice('There was an issue processing your payment. Please contact support.', 'error');
+            return ['result' => 'failure'];
+        }
+
+        // Keep existing behavior for order state
         $order->update_status('on-hold', 'Awaiting crypto payment processing');
 
         return [
             'result'   => 'success',
-            'redirect' => $this->get_return_url($order),
+            'redirect' => $this->get_return_url($order), // go to thank-you as usual
         ];
     }
 
@@ -444,24 +456,93 @@ class WC_Gateway_p2pcrypto extends WC_Payment_Gateway_CC
 
 
 
-add_action('woocommerce_before_main_content', 'peer_to_peer_crypto_custom_top_thankyou_notice', 5);
-
-function peer_to_peer_crypto_custom_top_thankyou_notice()
-{
-    if (!is_order_received_page()) return;
-
-    $order_id = absint(get_query_var('order-received'));
+add_action('woocommerce_thankyou', function ($order_id) {
     if (!$order_id) return;
 
     $order = wc_get_order($order_id);
     if (!$order || $order->get_payment_method() !== 'peer-to-peer-crypto') return;
 
-    echo '<div class="woocommerce-notice woocommerce-info" style="font-size: 1.15em; background: #fff3cd; border-left: 4px solid #ffeeba; padding: 16px; margin: 20px 0; text-align: center;"">
+    $checkout_type = $order->get_meta('_p2pcrypto_checkout_type');
+    $link          = $order->get_meta('_p2pcrypto_confirmation_link'); // raw link from API
+
+    if ($checkout_type === 'redirect' && $link) {
+        // Build the return URL (the canonical WooCommerce "order received" page for this order)
+        $return_url = $order->get_checkout_order_received_url();
+
+        // Append returnUrl param to the confirmation link.
+        // NOTE: pass the *unencoded* return URL; add_query_arg() will encode it properly.
+        $link_with_return = add_query_arg('returnUrl', $return_url, $link);
+
+        // For HTML attributes
+        $esc_link_attr = esc_url($link_with_return);
+        ?>
+        <div class="woocommerce-notice woocommerce-info" style="font-size:1.05em; background:#e7f5ff; border-left:4px solid #74c0fc; padding:16px; margin:16px 0; text-align:center;">
+            <strong>Almost there…</strong> Please double check your email to confirm you sent payment.<br>
+            If nothing opens, <a href="<?php echo $esc_link_attr; ?>" target="_blank" rel="noopener noreferrer">click here to continue</a>.
+        </div>
+
+        <script>
+        (function() {
+          var url = <?php echo json_encode($link_with_return); ?>;
+          var orderId = <?php echo json_encode((string)$order_id); ?>;
+          var key = 'p2pcrypto-opened-' + orderId;
+
+          // If we've already opened once (e.g., user returned from checkout), don't open again
+          try {
+            if (window.sessionStorage && sessionStorage.getItem(key) === '1') {
+              return;
+            }
+          } catch (e) { /* ignore storage errors */ }
+
+          // Try to open a new tab/window first
+          var win = null;
+          try { win = window.open(url, "_blank", "noopener"); } catch (e) { /* ignore */ }
+
+          // Create a hidden anchor as a second attempt
+          try {
+            var a = document.createElement('a');
+            a.href = url;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+          } catch(e) { /* ignore */ }
+
+          // If still blocked, redirect this tab so the user isn't stuck
+          setTimeout(function() {
+            var opened = !!(win && !win.closed);
+            if (!opened) {
+              window.location.assign(url);
+            }
+          }, 700);
+
+          // Mark as opened to avoid loops on return
+          try {
+            if (window.sessionStorage) {
+              sessionStorage.setItem(key, '1');
+            }
+          } catch (e) { /* ignore */ }
+        })();
+        </script>
+
+        <noscript>
+            <meta http-equiv="refresh" content="0;url=<?php echo esc_attr($esc_link_attr); ?>">
+            <p style="text-align:center; font-size:1.2em;">
+                JavaScript is disabled. <a href="<?php echo $esc_link_attr; ?>" target="_blank" rel="noopener">Click here to continue your checkout.</a>
+            </p>
+        </noscript>
+        <?php
+        return;
+    }
+
+    // --- Email flow (unchanged) ---
+    echo '<div class="woocommerce-notice woocommerce-info" style="font-size: 1.15em; background: #fff3cd; border-left: 4px solid #ffeeba; padding: 16px; margin: 20px 0; text-align: center;">
         ⚠️ <strong><h2>YOU’RE NOT FINISHED!</h2></strong><br>
-            <strong><h3>Please check your email, and click the provided link to complete your purchase.</h3></strong>
-            <h3>Please check your spam/junk folder if you did not receive it.</h3>
+        <strong><h3>Please check your email, and click the provided link to complete your purchase.</h3></strong>
+        <h3>Please check your spam/junk folder if you did not receive it.</h3>
     </div>';
-}
+});
 
 
 add_action('template_redirect', 'peer_to_peer_crypto_top_notice_render');
@@ -476,15 +557,27 @@ function peer_to_peer_crypto_top_notice_render()
     $order = wc_get_order($order_id);
     if (!$order || $order->get_payment_method() !== 'peer-to-peer-crypto') return;
 
-    add_action('wp_body_open', function () {
-        echo '<div class="woocommerce-notice woocommerce-info" style="font-size: 1.15em; background: #fff3cd; border-left: 4px solid #ffeeba; padding: 16px; margin: 20px; text-align: center;">
-        ⚠️ <strong><h2>YOU’RE NOT FINISHED!</h2></strong><br>
-            <strong><h3>Please check your email, and click the provided link to complete your purchase.</h3></strong>
-            <h3>Please check your spam/junk folder if you did not receive it.</h3>
-        </div>';
+    $checkout_type = $order->get_meta('_p2pcrypto_checkout_type');
+
+    add_action('wp_body_open', function () use ($checkout_type, $order) {
+        if ($checkout_type === 'redirect') {
+            echo '<div class="woocommerce-notice woocommerce-info" 
+                     style="font-size: 1.15em; background: #e7f5ff; border-left: 4px solid #74c0fc; padding: 16px; margin: 20px; text-align: center;">
+                <strong><h2>ALMOST THERE…</h2></strong><br>
+                <h3><strong>You will now be redirected to a secure third-party wallet app to complete your transaction.</strong></h3>
+                <h3>If you are not redirected, <a href="' . esc_url($order->get_meta('_p2pcrypto_confirmation_link')) . '" target="_blank" rel="noopener">click here</a>.</h3>
+                  <hr style="margin:20px 0;">
+            </div>';
+        } else {
+            echo '<div class="woocommerce-notice woocommerce-info" 
+                     style="font-size: 1.15em; background: #fff3cd; border-left: 4px solid #ffeeba; padding: 16px; margin: 20px; text-align: center;">
+                ⚠️ <strong><h2>YOU’RE NOT FINISHED!</h2></strong><br>
+                <strong><h3>Please check your email, and click the provided link to complete your purchase.</h3></strong>
+                <h3>Please check your spam/junk folder if you did not receive it.</h3>
+            </div>';
+        }
     }, 0);
 }
-
 
 // Expose a custom REST endpoint to update order status from backend
 add_action('rest_api_init', function () {
