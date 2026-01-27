@@ -111,7 +111,7 @@ class peerToPeer_Updater
         // ✅ Optional but useful fields
         $pluginInfo->sections = [
             'description' => $this->pluginData['Description'],
-            'changelog' => '<p><strong>1.13.1</strong> - Latest release from GitHub.</p>',
+            'changelog' => '<p><strong>1.14.2</strong> - Latest release from GitHub.</p>',
         ];
 
         return $pluginInfo;

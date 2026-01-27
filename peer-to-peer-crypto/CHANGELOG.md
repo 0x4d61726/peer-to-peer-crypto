@@ -1,5 +1,15 @@
+## 1.14.2 [2026-01-27]
+- Added Plugin Version Logging to support better debugging
+- 
+## 1.14.1 [2026-01-26]
+- Additional Bug Fixes
+
+## 1.13.2 [2025-08-28]
+- Updated description
+
+
 ## 1.13.1 [2025-08-27]
-- Updated Description
+- Updated Redirect
 
 
 ## 1.12.3 [2025-08-14]
