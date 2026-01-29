@@ -6,7 +6,7 @@
  * @copyright 2025 Copyright(c) - All rights reserved.
  * @author    Mark Robertson
  * @package   peer-to-peer Crypto
- * @version   1.14.2
+ * @version   1.14.3
  */
 
 defined('ABSPATH') || exit;

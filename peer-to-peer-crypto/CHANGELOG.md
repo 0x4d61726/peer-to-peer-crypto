@@ -1,6 +1,9 @@
+## 1.14.3 [2026-01-29]
+- Small Update Bug 
+
 ## 1.14.2 [2026-01-27]
 - Added Plugin Version Logging to support better debugging
-- 
+  
 ## 1.14.1 [2026-01-26]
 - Additional Bug Fixes
 

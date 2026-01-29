@@ -6,13 +6,13 @@
  * @copyright 2025
  * @author
  * @package   peer-to-peer Crypto
- * @version   1.14.2
+ * @version   1.14.3
  */
 
 // -------------------- Constants --------------------
 
 if (!defined('P2PCRYPTO_VERSION')) {
-    define('P2PCRYPTO_VERSION', '1.14.1');
+    define('P2PCRYPTO_VERSION', '1.14.3');
 }
 
 /**
