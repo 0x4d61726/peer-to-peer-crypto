@@ -1,3 +1,15 @@
+## 1.14.7 [2026-02-18]
+- Updated Verbage
+
+## 1.14.6 [2026-02-15]
+- Fixed Small Bugs
+
+## 1.14.5 [2026-02-10]
+- Updated redirect timing
+
+## 1.14.4 [2026-01-30]
+- Updated Description
+
 ## 1.14.3 [2026-01-29]
 - Small Update Bug 
 

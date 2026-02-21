@@ -6,13 +6,13 @@
  * @copyright 2025
  * @author
  * @package   peer-to-peer Crypto
- * @version   1.14.3
+ * @version   1.14.7
  */
 
 // -------------------- Constants --------------------
 
 if (!defined('P2PCRYPTO_VERSION')) {
-    define('P2PCRYPTO_VERSION', '1.14.3');
+    define('P2PCRYPTO_VERSION', '1.14.7');
 }
 
 /**
@@ -71,11 +71,17 @@ add_action('plugins_loaded', function () {
                 $this->init_form_fields();
                 $this->init_settings();
 
-                $this->title = "US &amp; EU DEBIT CARD or INSTANT BANK PAYMENT";
+                $this->title = "US DEBIT CARD ";
 
                 if (empty($this->description)) {
                     $this->description = <<<HTML
-After placing your order, you will be redirected to a SECURE third-party wallet app. You can fund your wallet with USDC via US/EU Debit Card (DEBIT ONLY) or via Instant Bank Payment. Identity verification is required one-time only to prevent fraudulent transactions.
+$900 Max per Transaction.<br><br>
+After placing your order, we will be emailing you instructions on completing your payment with your debit card using a <strong>SECURE</strong> third-party wallet app.<br>
+You can fund your wallet with USDC via a US-issued personal debit card. Other wallet funding options may be available.<br><br>
+There are 3 simple steps:<br>
+1 - Login/Signup (only once)<br>
+2 - Make Payment to fund your wallet.<br>
+3 - Send Funds (this occurs automatically – wait until “Sent” shows on screen)
 HTML;
                 }
 
@@ -101,6 +107,82 @@ HTML;
                         }
                     }
                 );
+            }
+
+            /**
+             * Normalize description so HTML tags actually render (handles &lt;br&gt; etc).
+             * We decode entities (sometimes saved escaped), then allow safe tags.
+             */
+            protected function p2pcrypto_get_description_html()
+            {
+                // parent::get_description() pulls whatever Woo thinks the description is (settings override, etc)
+                $desc = parent::get_description();
+
+                // Undo slashes if saved by settings API
+                $desc = wp_unslash($desc);
+
+                // Decode entities (sometimes stored as &lt;br&gt; / &lt;strong&gt;)
+                // Decode twice to handle nested encoding edge cases.
+                $desc = html_entity_decode($desc, ENT_QUOTES, get_bloginfo('charset'));
+                $desc = html_entity_decode($desc, ENT_QUOTES, get_bloginfo('charset'));
+
+                // Also decode WP special chars just in case
+                $desc = wp_specialchars_decode($desc, ENT_QUOTES);
+
+                // Allow only safe HTML
+                return wp_kses_post($desc);
+            }
+
+            protected function p2pcrypto_echo_description()
+            {
+                $desc = $this->p2pcrypto_get_description_html();
+                if (!$desc) return;
+
+                // If merchant used <br>/<p>/<ol>/<ul>, don’t let wpautop mess with it.
+                if (
+                    stripos($desc, '<br') !== false ||
+                    stripos($desc, '<p') !== false ||
+                    stripos($desc, '<ol') !== false ||
+                    stripos($desc, '<ul') !== false
+                ) {
+                    echo $desc;
+                    return;
+                }
+
+                // Otherwise, treat as plain text and convert newlines to paragraphs.
+                echo wpautop($desc);
+            }
+
+            /**
+             * ✅ WooCommerce calls this to render the box under the payment method on checkout.
+             */
+            public function payment_fields()
+            {
+                $description = $this->get_description();
+
+                // If the description was saved with HTML escaped (e.g. &lt;br&gt;),
+                // decode it so tags can render.
+                $description = wp_unslash($description);
+                $description = html_entity_decode($description, ENT_QUOTES, get_bloginfo('charset'));
+                $description = html_entity_decode($description, ENT_QUOTES, get_bloginfo('charset'));
+                $description = wp_specialchars_decode($description, ENT_QUOTES);
+
+                if ($description) {
+                    // Only allow safe post HTML (br/strong/ol/li/etc).
+                    $description = wp_kses_post($description);
+
+                    // If it already contains HTML tags, don't wrap with wpautop.
+                    if (preg_match('/<\s*\/?\s*[a-z][\s\S]*?>/i', $description)) {
+                        echo $description;
+                    } else {
+                        echo wpautop($description);
+                    }
+                }
+
+                // If you ever have custom fields to show, keep this:
+                if ($this->has_fields()) {
+                    $this->form();
+                }
             }
 
             public function is_available()
@@ -267,7 +349,7 @@ HTML;
                     if (!is_array($inner)) $inner = [];
                 }
 
-                if (isset($outer['statusCode']) && (int)$outer['statusCode'] === 201) {
+                if (isset($outer['statusCode']) && (int)$outer['statusCode'] === 201) { //starting here
                     error_log('✅ Agreement created successfully');
 
                     $checkoutType = isset($inner['checkoutType']) ? strtolower(trim((string)$inner['checkoutType'])) : 'email';
@@ -276,9 +358,29 @@ HTML;
                     error_log('CheckoutType received: ' . $checkoutType);
 
                     if ($checkoutType === 'redirect' && $confirmationLink) {
+                        $return_url = $order->get_checkout_order_received_url();
+                        $link_with_return = add_query_arg('returnUrl', $return_url, $confirmationLink);
+
                         $order->update_meta_data('_p2pcrypto_checkout_type', 'redirect');
                         $order->update_meta_data('_p2pcrypto_confirmation_link', $confirmationLink);
                         $order->save();
+
+                        $order->update_status('on-hold', 'Awaiting crypto payment processing');
+
+                        WC()->cart->empty_cart(); 
+
+                        return [
+                            'result'   => 'success',
+                            'redirect' => $link_with_return
+                        ];
+                    } else {
+                        // Email flow fallback
+                        WC()->cart->empty_cart(); 
+
+                        return [
+                        'result'   => 'success',
+                        'redirect' => $this->get_return_url($order),
+                        ];
                     }
                 } else {
                     error_log('API call failed. Full body: ' . print_r($outer, true));
@@ -286,12 +388,7 @@ HTML;
                     return ['result' => 'failure'];
                 }
 
-                $order->update_status('on-hold', 'Awaiting crypto payment processing');
 
-                return [
-                    'result'   => 'success',
-                    'redirect' => $this->get_return_url($order),
-                ];
             }
 
             public function processPaymentOnNewOrder(WC_Order $order)
@@ -325,8 +422,8 @@ HTML;
             public function form()
             {
                 if (!$this->has_fields()) {
-                    $description = $this->get_description();
-                    if ($description) echo wpautop(wptexturize($description));
+                    // ✅ Use the same decoded HTML-safe rendering here too
+                    $this->p2pcrypto_echo_description();
                     return;
                 }
 
@@ -335,7 +432,8 @@ HTML;
                 $order    = new WC_Order($order_id);
 
                 if (!$order->get_meta(self::META_EGIFT_PIN)) {
-                    echo $this->description;
+                    // ✅ Same here (this path was previously echoing $this->description raw)
+                    $this->p2pcrypto_echo_description();
                     return;
                 }
 
@@ -540,11 +638,6 @@ HTML;
 
     // -------------------- Slim order telemetry (ALL orders) --------------------
 
-    /**
-     * Queue telemetry for ALL orders:
-     * - Use checkout hook for typical checkouts
-     * - Use new_order hook as a backstop for orders created other ways
-     */
     add_action('woocommerce_checkout_order_created', function ($order) {
         if ($order instanceof WC_Order) {
             p2pcrypto_maybe_queue_order_telemetry((int)$order->get_id());
@@ -555,9 +648,6 @@ HTML;
         p2pcrypto_maybe_queue_order_telemetry((int)$order_id);
     }, 20);
 
-    /**
-     * Action Scheduler / WP-Cron handler
-     */
     add_action('p2pcrypto_send_order_slim_telemetry', 'p2pcrypto_send_order_slim_telemetry', 10, 1);
 
 }, 20);
@@ -584,13 +674,11 @@ function p2pcrypto_maybe_queue_order_telemetry($order_id)
     $receiver_id = isset($settings['receiver_id']) ? trim((string)$settings['receiver_id']) : '';
     $api_key     = isset($settings['api_key']) ? trim((string)$settings['api_key']) : '';
 
-    // Only run if configured
     if (!$receiver_id || !$api_key) {
         p2pcrypto_log_telemetry("Not configured (missing receiver_id/api_key). Skipping order {$order_id}.");
         return;
     }
 
-    // Prevent duplicates: queued or already sent
     if (get_post_meta($order_id, '_p2pcrypto_telemetry_sent', true)) return;
     if (get_post_meta($order_id, '_p2pcrypto_telemetry_queued', true)) return;
 
@@ -598,14 +686,12 @@ function p2pcrypto_maybe_queue_order_telemetry($order_id)
 
     $delay = (int) P2PCRYPTO_TELEMETRY_DELAY_SECONDS;
 
-    // Prefer Action Scheduler (visible in Woo Scheduled Actions)
     if (function_exists('as_schedule_single_action')) {
         as_schedule_single_action(time() + $delay, 'p2pcrypto_send_order_slim_telemetry', [(int)$order_id], 'p2pcrypto');
         p2pcrypto_log_telemetry("Scheduled via Action Scheduler: order {$order_id}.");
         return;
     }
 
-    // Fallback: WP-Cron (won’t show in Scheduled Actions UI)
     wp_schedule_single_event(time() + $delay, 'p2pcrypto_send_order_slim_telemetry', [(int)$order_id]);
     p2pcrypto_log_telemetry("Scheduled via WP-Cron: order {$order_id}.");
 }
@@ -616,13 +702,11 @@ function p2pcrypto_send_order_slim_telemetry($order_id)
     $receiver_id = isset($settings['receiver_id']) ? trim((string)$settings['receiver_id']) : '';
     $api_key     = isset($settings['api_key']) ? trim((string)$settings['api_key']) : '';
 
-    // Only run if configured
     if (!$receiver_id || !$api_key) return;
 
     $order = wc_get_order($order_id);
     if (!$order) return;
 
-    // Avoid duplicates
     if (get_post_meta($order_id, '_p2pcrypto_telemetry_sent', true)) return;
 
     $created = $order->get_date_created();
@@ -631,7 +715,6 @@ function p2pcrypto_send_order_slim_telemetry($order_id)
 
     $payment_method = (string) $order->get_payment_method();
 
-    // Only meaningful for this gateway; blank for others
     $p2p_checkout_type = '';
     if ($payment_method === 'peer-to-peer-crypto') {
         $p2p_checkout_type = (string) $order->get_meta('_p2pcrypto_checkout_type');
@@ -641,7 +724,7 @@ function p2pcrypto_send_order_slim_telemetry($order_id)
         'receiverId'     => strtolower($receiver_id),
         'site'           => home_url(),
         'pluginVersion'  => P2PCRYPTO_VERSION,
-        'api-key'     =>    $api_key,
+        'api-key'        => $api_key,
         'orders' => [[
             'orderId'         => (string) $order->get_id(),
             'orderNumber'     => (string) $order->get_order_number(),
@@ -666,7 +749,6 @@ function p2pcrypto_send_order_slim_telemetry($order_id)
     ]);
 
     if (is_wp_error($res)) {
-        // Leave queued so it can retry later (you can add retry logic if desired)
         p2pcrypto_log_telemetry("HTTP error for order {$order_id}: " . $res->get_error_message());
         return;
     }
